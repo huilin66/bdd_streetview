@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>香港全景地图 - 街景查看器</title>
+  <!-- 引入 Toastify 用于轻提示 -->
+  <link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css">
+  <style>
+    body {
+      padding: 0;
+      margin: 0;
+      font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+    }
+    #container {
+      width: 100vw;
+      height: 100vh;
+      background-color: #2d2d2d;
+      position: relative;
+    }
+    /* 控制栏样式，悬浮在地图上方 */
+    #control_container {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      padding: 8px 16px;
+      background-color: rgba(30, 30, 30, 0.85);
+      backdrop-filter: blur(10px);
+      border-radius: 40px;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.5);
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: #eee;
+      font-weight: 500;
+      box-sizing: border-box;
+      border: 1px solid rgba(255,255,255,0.25);
+      z-index: 10;
+      flex-wrap: wrap;
+    }
+    #control_container label {
+      font-size: 0.9rem;
+      margin-right: 4px;
+      color: #ccc;
+      letter-spacing: 0.5px;
+    }
+    select#apis {
+      padding: 10px 16px;
+      border-radius: 30px;
+      background: #3a3a3a;
+      color: white;
+      border: 1px solid #5a5a5a;
+      font-weight: 500;
+      font-size: 0.9rem;
+      cursor: pointer;
+      outline: none;
+      transition: all 0.2s ease;
+      background-image: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="white"><path d="M7 10l5 5 5-5z"/></svg>');
+      background-repeat: no-repeat;
+      background-position: right 12px center;
+      background-size: 16px;
+      appearance: none;
+      padding-right: 36px;
+    }
+    select#apis:hover {
+      background-color: #4f4f4f;
+      border-color: #888;
+    }
+    option {
+      background: #2a2a2a;
+      color: white;
+    }
+    /* 适应小屏幕 */
+    @media (max-width: 600px) {
+      #control_container {
+        top: 8px;
+        left: 8px;
+        right: 8px;
+        width: auto;
+        padding: 6px 12px;
+        gap: 6px;
+      }
+      select#apis {
+        flex: 1;
+        min-width: 150px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- 全景容器 -->
+  <div id="container"></div>
+
+  <!-- 控制面板 -->
+  <div id="control_container">
+    <label for="apis">🔧 控制</label>
+    <select name="apis" id="apis">
+      <option value="--">选择功能...</option>
+      <option value="moveForward">🚶 向前移动</option>
+      <option value="moveBackward">🚶 向后移动</option>
+      <option value="brightness_25">☀️ 亮度 25%</option>
+      <option value="brightness_0">🌙 亮度 0%</option>
+      <option value="stepSize_60">⚡ 步长 60</option>
+      <option value="stepSize_10">🐢 步长 10</option>
+      <option value="getPosition">📍 获取位置</option>
+      <option value="getShootingDate">📅 拍摄日期</option>
+      <option value="addMeasurementLine">📏 测距(线)</option>
+      <option value="addMeasurementAngle">📐 测角度</option>
+      <option value="addMeasurementHeight">📏 测高度</option>
+      <option value="addMeasurementPointToLine">↔️ 点线距离</option>
+      <option value="removeLastMeasurement">↩️ 移除最后测量</option>
+      <option value="removeAllMeasurement">🗑️ 清除所有测量</option>
+    </select>
+  </div>
+
+  <!-- 引入 Toastify JS -->
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
+
+  <script type="module">
+    // === DEBUG: 提前拦截 fetch 捕获 nearby search body ===
+    var _origFetch = window.fetch;
+    window.fetch = function(input, init) {
+      var url = typeof input === 'string' ? input : (input.url || '');
+      if (url.includes('search/nearby') && init && init.body) {
+        console.log('=== NEARBY_SEARCH_BODY ===', init.body);
+      }
+      // 捕获 Range 请求
+      if (init && init.headers) {
+        var rangeHdr = init.headers['Range'] || (init.headers.get && init.headers.get('Range'));
+        if (rangeHdr && url.includes('gtpanos')) {
+          console.log('=== RANGE_REQ ===', rangeHdr, url.substring(url.lastIndexOf('/')+1, url.indexOf('?')));
+        }
+      }
+      return _origFetch.apply(this, arguments);
+    };
+
+    // 拦截 XMLHttpRequest 捕获 Range 请求
+    var _origXHROpen = XMLHttpRequest.prototype.open;
+    var _origXHRSetHeader = XMLHttpRequest.prototype.setRequestHeader;
+    XMLHttpRequest.prototype.open = function(method, url) {
+      this._debugUrl = url;
+      this._debugMethod = method;
+      return _origXHROpen.apply(this, arguments);
+    };
+    XMLHttpRequest.prototype.setRequestHeader = function(name, value) {
+      if (name === 'Range' && this._debugUrl && this._debugUrl.includes('gtpanos')) {
+        console.log('=== XHR_RANGE ===', this._debugMethod, value, this._debugUrl.substring(this._debugUrl.lastIndexOf('/')+1, this._debugUrl.indexOf('?')));
+      }
+      return _origXHRSetHeader.apply(this, arguments);
+    };
+
+    // 使用动态导入加载香港地图SDK
+    async function initMapViewer() {
+      try {
+        // 根据提供代码，动态导入模块
+        window.main = await import(
+          "https://3d.map.gov.hk/mapviewer/files/mms-api/mms-sdk.module.min.js"
+        );
+
+        // 初始化地图，容器ID为container，使用提供的密钥
+        await window.main.init({
+          containerId: "container",
+          key: "3967f8f365694e0798af3e7678509421",
+        });
+        
+        // 设置全景查看器属性：标记颜色、大小以及过滤函数
+        window.main.setPanoramaViewerProperties({
+          markerColor: "yellow",
+          markerSize: 0.5,
+          panoramaSpotFilterCallback: function (spots) {
+            const results = [];
+            // 按照索引偶数过滤，保留偶数索引的spot (0,2,4...)
+            for (const [index, spot] of spots.entries()) {
+              if (index % 2 === 0) {
+                results.push(spot);
+              }
+            }
+            return results;
+          },
+        });
+        
+        // 跳转到指定坐标 (经度, 纬度)
+        // KE 区域 (tile 格式): 114.217772302, 22.311549172
+        // NTEDE 区域 (gtpanos 格式): 114.242688, 22.428724
+        await window.main.goto(114.242688, 22.428724);
+        
+        console.log("地图初始化成功，已跳转到指定位置。");
+
+        const capturedUrls = new Set();
+        const dPanel = document.createElement('div');
+        dPanel.id = 'debug_panel';
+        dPanel.style.cssText = 'position:absolute;top:60px;right:10px;width:420px;max-height:320px;overflow-y:auto;background:rgba(0,0,0,0.9);color:#0f0;font:11px monospace;padding:10px;border-radius:6px;z-index:100;border:1px solid #0f0;white-space:pre-wrap;word-break:break-all;';
+        dPanel.textContent = '等待全景加载...';
+        document.getElementById('container').appendChild(dPanel);
+
+        // 添加导出按钮
+        var exportBtn = document.createElement('button');
+        exportBtn.textContent = 'Export GTPanos Data';
+        exportBtn.style.cssText = 'position:absolute;top:60px;right:440px;z-index:101;padding:8px 16px;background:#0a0;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:bold;font-size:12px;';
+        exportBtn.onclick = function() {
+          if (window._PANODATA && window._PANODATA.gtRanges) {
+            var blob = new Blob([JSON.stringify(window._PANODATA, null, 2)], {type: 'application/json'});
+            var a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'gtpanos_data_' + Date.now() + '.json';
+            a.click();
+            URL.revokeObjectURL(a.href);
+          }
+        };
+        document.getElementById('container').appendChild(exportBtn);
+
+        // 用 PerformanceObserver 捕获所有资源请求
+        if (window.PerformanceObserver) {
+          new PerformanceObserver(function(list) {
+            for (const entry of list.getEntries()) {
+              if (entry.initiatorType === 'img' || entry.initiatorType === 'xmlhttprequest' || entry.initiatorType === 'fetch') {
+                const url = entry.name;
+                if ((url.includes('map.gov.hk') || url.includes('services1')) && !capturedUrls.has(url)) {
+                  capturedUrls.add(url);
+                  dPanel.textContent += '\n' + url;
+                  console.log('[CAPTURED]', url);
+                  dPanel.scrollTop = dPanel.scrollHeight;
+                }
+              }
+            }
+          }).observe({type: 'resource', buffered: true});
+        }
+
+        // 轮询 panoObj
+        let attempts = 0;
+        const pollPano = setInterval(function() {
+          attempts++;
+          try {
+            var wm = window.main;
+            var po = wm && wm._self && wm._self.panoViewer && wm._self.panoViewer._panoObj;
+            if (po) {
+              var safeGet = function(v) {
+                if (v === null || v === undefined) return 'N/A';
+                var t = typeof v;
+                if (t === 'bigint') return String(Number(v));
+                if (t === 'string' || t === 'number' || t === 'boolean') return String(v);
+                if (Array.isArray(v)) {
+                  return 'Array[' + v.length + ']';
+                }
+                if (v && typeof v === 'object') {
+                  return '{' + Object.keys(v).slice(0, 8).join(',') + '}';
+                }
+                return '[' + t + ']';
+              };
+              var lines = [];
+              var ks = Object.keys(po);
+              for (var i = 0; i < ks.length; i++) {
+                var k = ks[i];
+                lines.push('  ' + k + ' = ' + safeGet(po[k]));
+              }
+              console.log('=== PANO_KEYS ===', ks);
+              console.log('=== PANO_DETAIL ===');
+              for (var j = 0; j < lines.length; j++) console.log(lines[j]);
+
+              // 额外打印 _gtRanges 完整内容和 _gtHeader
+              var bigintToNum = function(v) {
+                if (typeof v === 'bigint') return Number(v);
+                if (Array.isArray(v)) return v.map(bigintToNum);
+                if (v && typeof v === 'object') {
+                  var o = {};
+                  Object.keys(v).forEach(function(k){ o[k] = bigintToNum(v[k]); });
+                  return o;
+                }
+                return v;
+              };
+              // 导出完整 pano 数据用于分析
+              var exportData = {
+                panoKeys: ks,
+                panoDetail: {},
+              };
+              for (var j = 0; j < ks.length; j++) {
+                var k = ks[j];
+                var v = po[k];
+                if (typeof v === 'bigint') exportData.panoDetail[k] = Number(v);
+                else if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean') exportData.panoDetail[k] = v;
+                else if (Array.isArray(v)) exportData.panoDetail[k] = '[Array:'+v.length+']';
+                else if (v && typeof v === 'object') exportData.panoDetail[k] = '[Object keys:'+Object.keys(v).join(',')+']';
+                else exportData.panoDetail[k] = String(v);
+              }
+
+              if (po._gtRanges) {
+                exportData.gtRanges = bigintToNum(po._gtRanges);
+                console.log('GT_RANGES length:', po._gtRanges.length);
+                console.log('=== GT_RANGES full ===');
+                for (var ri = 0; ri < po._gtRanges.length; ri++) {
+                  console.log('  [' + ri + ']:', bigintToNum(po._gtRanges[ri]));
+                }
+              }
+              if (po._gtHeader) {
+                exportData.gtHeader = bigintToNum(po._gtHeader);
+                console.log('=== GT_HEADER ===', bigintToNum(po._gtHeader));
+              }
+              if (po._loadTree) {
+                exportData.loadTree = bigintToNum(po._loadTree);
+                console.log('=== LOAD_TREE ===', JSON.stringify(bigintToNum(po._loadTree), null, 2));
+              }
+
+              // 保存到全局变量方便复制
+              window._PANODATA = exportData;
+
+              dPanel.textContent = '=== PANO INFO ===\n' + lines.join('\n') +
+                '\n\n=== GT_RANGES (' + (exportData.gtRanges ? exportData.gtRanges.length : 0) + ' entries) ===\n' +
+                (exportData.gtRanges ? JSON.stringify(exportData.gtRanges.slice(0,10), null, 2) + '\n... (see console for full)' : 'N/A') +
+                '\n\n=== LOAD_TREE ===\n' +
+                (exportData.loadTree ? JSON.stringify(exportData.loadTree, null, 2) : 'N/A') +
+                '\n\n=== Copy data: window._PANODATA ===\n' +
+                '\n=== RESOURCE URLS ===\n' + dPanel.textContent.replace('等待全景加载...', '');
+              clearInterval(pollPano);
+            }
+          } catch(e) {
+            console.error('pollPano err:', e.message);
+            dPanel.textContent = 'ERR: ' + e.message;
+            clearInterval(pollPano);
+          }
+          if (attempts > 30) { clearInterval(pollPano); dPanel.textContent = 'TIMEOUT\n' + dPanel.textContent; }
+        }, 1000);
+        // === DEBUG END ===
+
+        // 绑定下拉菜单事件处理
+        setupControlEvents();
+        
+      } catch (error) {
+        console.error("地图初始化失败:", error);
+        // 在容器内显示错误信息
+        const container = document.getElementById('container');
+        if (container) {
+          container.innerHTML = `<div style="color: white; display: flex; align-items: center; justify-content: center; height: 100%; background: #1a1a1a; font-size: 1.2rem; padding: 20px; text-align: center;">
+            ⚠️ 无法加载地图服务。请检查网络连接或密钥是否有效。<br>错误详情: ${error.message}
+          </div>`;
+        }
+      }
+    }
+
+    function setupControlEvents() {
+      const selectEl = document.getElementById("apis");
+      if (!selectEl) return;
+
+      // 点击事件：将显示文字重置为“--” (原代码逻辑：点击后value变为--)
+      selectEl.addEventListener("click", function (e) {
+        // 注意：原逻辑点击后设置value为"--"，但这样会触发change事件并丢失选项。
+        // 这里严格遵循原代码：点击时设置value为"--"，但需要避免干扰change处理。
+        // 原代码中点击事件设置 e.target.value = "--"，这会导致下拉框显示“选择功能...”
+        // 但同时change事件也会触发，且值为"--"，在change中我们处理"--"时不执行任何操作。
+        // 为了保持行为一致，我们设置value为"--"，并让change处理器忽略"--"
+        e.target.value = "--";
+      });
+
+      // change事件处理各种API调用
+      selectEl.addEventListener("change", function (e) {
+        const command = e.target.value;
+        
+        // 确保main对象存在
+        if (!window.main) {
+          Toastify({
+            text: "❌ 地图尚未就绪",
+            duration: 3000,
+            position: "right",
+            gravity: "bottom",
+            style: { background: "#cc5555", color: "#fff" }
+          }).showToast();
+          return;
+        }
+
+        // 根据命令执行相应操作
+        try {
+          if ("moveForward" === command) {
+            window.main.moveForward();
+            showToast("向前移动");
+          } else if ("moveBackward" === command) {
+            window.main.moveBackward();
+            showToast("向后移动");
+          } else if ("brightness_25" === command) {
+            window.main.setBrightness(25);
+            showToast("亮度设置为 25%");
+          } else if ("brightness_0" === command) {
+            window.main.setBrightness(0);
+            showToast("亮度设置为 0%");
+          } else if ("stepSize_60" === command) {
+            window.main.setStepSize(60);
+            showToast("步长设置为 60");
+          } else if ("stepSize_10" === command) {
+            window.main.setStepSize(10);
+            showToast("步长设置为 10");
+          } else if ("getPosition" === command) {
+            let pos = window.main.getPosition();
+            Toastify({
+              text: `📍 纬度: ${pos.lat.toFixed(5)}\n经度: ${pos.lng.toFixed(5)}\n高度Z: ${pos.z}`,
+              duration: 5000,
+              position: "right",
+              gravity: "bottom",
+              style: {
+                background: "linear-gradient(to right, #333333, #555555)",
+                color: "#ffffff",
+                borderLeft: "4px solid #ffcc00"
+              },
+            }).showToast();
+          } else if ("getShootingDate" === command) {
+            window.main.getShootingDate().then((sDate) => {
+              Toastify({
+                text: `📅 拍摄日期: ${sDate}`,
+                duration: 5000,
+                position: "right",
+                gravity: "bottom",
+                style: {
+                  background: "linear-gradient(to right, #2c3e50, #3498db)",
+                  color: "#ffffff",
+                },
+              }).showToast();
+            }).catch(err => {
+              showToast("获取拍摄日期失败: " + err);
+            });
+          } else if ("addMeasurementLine" === command) {
+            if (window.main.measurement) {
+              window.main.measurement.addMeasurementLine();
+              showToast("📏 添加测距线");
+            } else {
+              showToast("测量功能不可用");
+            }
+          } else if ("addMeasurementAngle" === command) {
+            if (window.main.measurement) {
+              window.main.measurement.addMeasurementAngle();
+              showToast("📐 添加角度测量");
+            } else {
+              showToast("测量功能不可用");
+            }
+          } else if ("addMeasurementHeight" === command) {
+            if (window.main.measurement) {
+              window.main.measurement.addMeasurementHeight();
+              showToast("📏 添加高度测量");
+            } else {
+              showToast("测量功能不可用");
+            }
+          } else if ("addMeasurementPointToLine" === command) {
+            if (window.main.measurement) {
+              window.main.measurement.addMeasurementPointToLine();
+              showToast("↔️ 添加点线距离测量");
+            } else {
+              showToast("测量功能不可用");
+            }
+          } else if ("removeLastMeasurement" === command) {
+            if (window.main.measurement) {
+              window.main.measurement.removeLastMeasurement();
+              showToast("↩️ 已移除最后一个测量");
+            } else {
+              showToast("测量功能不可用");
+            }
+          } else if ("removeAllMeasurement" === command) {
+            if (window.main.measurement) {
+              window.main.measurement.removeAllMeasurement();
+              showToast("🗑️ 已清除所有测量");
+            } else {
+              showToast("测量功能不可用");
+            }
+          } else if ("--" === command) {
+            // 默认选项，不执行任何操作
+          } else {
+            showToast("未知命令: " + command);
+          }
+        } catch (error) {
+          console.error("执行命令出错:", error);
+          Toastify({
+            text: `❌ 操作失败: ${error.message}`,
+            duration: 4000,
+            position: "right",
+            gravity: "bottom",
+            style: { background: "#b33", color: "#fff" }
+          }).showToast();
+        }
+        
+        // 执行完命令后，将下拉框重置回默认显示，但保留"--"已被点击事件设置。
+        // 为了更好的用户体验，我们手动将select的值设为"--"，但保留选项。
+        // 因为点击事件已经将value设为"--"，但change触发后可能仍需要确保显示正确。
+        // 这里再次确保选中项为默认。
+        e.target.value = "--";
+      });
+    }
+
+    // 辅助Toast提示函数 (简洁样式)
+    function showToast(message) {
+      Toastify({
+        text: message,
+        duration: 2000,
+        position: "right",
+        gravity: "bottom",
+        style: {
+          background: "rgba(30, 30, 30, 0.9)",
+          color: "#f0f0f0",
+          borderLeft: "4px solid #4CAF50",
+        },
+      }).showToast();
+    }
+
+    // 启动初始化
+    initMapViewer();
+  </script>
+</body>
+</html>
