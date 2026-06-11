@@ -1,13 +1,17 @@
 """
-点位可视化工具 —— 读取 GeoJSON 所有点坐标，生成自包含 HTML 地图 (folium 风格)
+点位可视化工具 —— 读取 GeoJSON 所有点坐标，生成 HTML 地图 / 导出 Shapefile
 
 用法:
-    python pan_tools/visualize.py              # 生成文件 + 启动本地服务器
-    python pan_tools/visualize.py --no-serve    # 仅生成文件
+    python pan_tools/visualize.py              # 默认: 生成 HTML + SHP
+    python pan_tools/visualize.py --html        # 仅生成 HTML 地图
+    python pan_tools/visualize.py --shp         # 仅导出 Shapefile
+    python pan_tools/visualize.py --html --shp  # 两个都做
+    python pan_tools/visualize.py --no-serve    # 仅生成文件 (不启动服务器)
 输出:
     pan_tools/frontend/
-        map.html        # 地图页面
-        points.bin      # Float32 二进制坐标 (~27 MB)
+        map.html                # 地图页面
+        points.bin              # Float32 二进制坐标 (~27 MB)
+        streetscape_points.*    # ESRI Shapefile (.shp/.shx/.dbf/.prj)
 """
 import os
 import argparse
@@ -203,66 +207,121 @@ load();
 </html>"""
 
 
-def main():
-    parser = argparse.ArgumentParser(description="生成街景点位可视化地图")
-    parser.add_argument("--no-serve", action="store_true", help="仅生成文件，不启动服务器")
-    parser.add_argument("--port", type=int, default=HTTP_PORT, help=f"HTTP 端口 (默认 {HTTP_PORT})")
-    args = parser.parse_args()
+WGS84_PRJ = (
+    'GEOGCS["WGS 84",'
+    'DATUM["WGS_1984",'
+    'SPHEROID["WGS 84",6378137,298.257223563,'
+    'AUTHORITY["EPSG","7030"]],'
+    'AUTHORITY["EPSG","6326"]],'
+    'PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],'
+    'UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],'
+    'AUTHORITY["EPSG","4326"]]'
+)
 
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-    bin_path = OUTPUT_DIR / "points.bin"
 
-    print(f"读取 GeoJSON: {GEOJSON_PATH}")
-    with open(GEOJSON_PATH, "r", encoding="utf-8") as f:
+def geojson_to_shp(geojson_path, output_dir):
+    """将 GeoJSON 点要素转换为 ESRI Shapefile"""
+    import shapefile
+
+    print(f"读取 GeoJSON: {geojson_path}")
+    with open(geojson_path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
     features = data["features"]
     count = len(features)
     print(f"  共 {count:,} 个点")
 
-    print(f"写入二进制坐标: {bin_path}")
-    with open(bin_path, "wb") as f:
-        for i, feat in enumerate(features):
-            c = feat["geometry"]["coordinates"]
-            f.write(struct.pack("<ff", c[0], c[1]))
-            if (i + 1) % 1_000_000 == 0:
-                print(f"  {i + 1:,}/{count:,}")
+    shp_path = str(output_dir / "streetscape_points")
+    w = shapefile.Writer(shp_path, shapeType=shapefile.POINT)
+    w.field("id", "N")
+    w.field("lng", "F", decimal=8)
+    w.field("lat", "F", decimal=8)
+    w.field("elev_m", "F", decimal=3)
 
-    size_mb = bin_path.stat().st_size / 1024 / 1024
-    print(f"  {size_mb:.1f} MB ({count * 8:,} bytes)")
+    print(f"写入 Shapefile: {shp_path}.shp")
+    for i, feat in enumerate(features):
+        c = feat["geometry"]["coordinates"]
+        lng, lat = c[0], c[1]
+        z = c[2] if len(c) > 2 else 0.0
+        w.point(lng, lat)
+        w.record(i + 1, lng, lat, z)
+        if (i + 1) % 1_000_000 == 0:
+            print(f"  {i + 1:,}/{count:,}")
 
-    html_path = OUTPUT_DIR / "map.html"
-    html_path.write_text(HTML_TEMPLATE.format(count=f"{count:,}", grid_res=GRID_RES), encoding="utf-8")
-    print(f"生成 HTML: {html_path}")
+    w.close()
 
-    if args.no_serve:
-        print(f"\n用浏览器打开前先启动服务器:")
-        print(f"  python -m http.server {args.port} -d {OUTPUT_DIR}")
-        print(f"  然后打开 http://localhost:{args.port}/map.html")
-        return
+    # 写入投影文件
+    prj_path = output_dir / "streetscape_points.prj"
+    prj_path.write_text(WGS84_PRJ)
+    print(f"  生成: {shp_path}.shp, .shx, .dbf, .prj")
+    print(f"  共 {count:,} 个点")
 
-    # 启动 HTTP 服务器 + 打开浏览器
-    import threading
-    os.chdir(str(OUTPUT_DIR))
 
-    class QuietHandler(http.server.SimpleHTTPRequestHandler):
-        def log_message(self, format, *a):
-            pass
+def main():
+    parser = argparse.ArgumentParser(description="生成街景点位可视化地图 / 格式转换")
+    parser.add_argument("--html", action="store_true", help="生成 HTML 地图")
+    parser.add_argument("--shp", action="store_true", help="导出 Shapefile")
+    parser.add_argument("--no-serve", action="store_true", help="仅生成文件，不启动服务器")
+    parser.add_argument("--port", type=int, default=HTTP_PORT, help=f"HTTP 端口 (默认 {HTTP_PORT})")
+    args = parser.parse_args()
 
-    server = http.server.HTTPServer(("", args.port), QuietHandler)
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
+    # 默认: 两个都不选 → 两个都做
+    do_html = args.html or (not args.html and not args.shp)
+    do_shp = args.shp or (not args.html and not args.shp)
 
-    url = f"http://localhost:{args.port}/map.html"
-    print(f"\nHTTP 服务器已启动: {url}")
-    webbrowser.open(url)
-    print("按 Ctrl+C 停止服务器")
-    try:
-        while True:
-            pass
-    except KeyboardInterrupt:
-        print("\n已停止")
-        server.shutdown()
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    if do_shp:
+        geojson_to_shp(GEOJSON_PATH, OUTPUT_DIR)
+
+    if do_html:
+        bin_path = OUTPUT_DIR / "points.bin"
+        print(f"读取 GeoJSON: {GEOJSON_PATH}")
+        with open(GEOJSON_PATH, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        features = data["features"]
+        count = len(features)
+        print(f"  共 {count:,} 个点")
+        print(f"写入二进制坐标: {bin_path}")
+        with open(bin_path, "wb") as f:
+            for i, feat in enumerate(features):
+                c = feat["geometry"]["coordinates"]
+                f.write(struct.pack("<ff", c[0], c[1]))
+                if (i + 1) % 1_000_000 == 0:
+                    print(f"  {i + 1:,}/{count:,}")
+        size_mb = bin_path.stat().st_size / 1024 / 1024
+        print(f"  {size_mb:.1f} MB ({count * 8:,} bytes)")
+        html_path = OUTPUT_DIR / "map.html"
+        html_path.write_text(HTML_TEMPLATE.format(count=f"{count:,}", grid_res=GRID_RES), encoding="utf-8")
+        print(f"生成 HTML: {html_path}")
+
+        if args.no_serve:
+            print("\n用浏览器打开前先启动服务器:")
+            print(f"  python -m http.server {args.port} -d {OUTPUT_DIR}")
+            print(f"  然后打开 http://localhost:{args.port}/map.html")
+            return
+
+        import threading
+        os.chdir(str(OUTPUT_DIR))
+
+        class QuietHandler(http.server.SimpleHTTPRequestHandler):
+            def log_message(self, format, *a):
+                pass
+
+        server = http.server.HTTPServer(("", args.port), QuietHandler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+
+        url = f"http://localhost:{args.port}/map.html"
+        print(f"\nHTTP 服务器已启动: {url}")
+        webbrowser.open(url)
+        print("按 Ctrl+C 停止服务器")
+        try:
+            while True:
+                pass
+        except KeyboardInterrupt:
+            print("\n已停止")
+            server.shutdown()
 
 
 if __name__ == "__main__":

@@ -117,8 +117,11 @@ For GTPanos format, `panoDetail` contains the full raw metadata extracted from t
 A map visualization of all 3.37M coordinate points is available:
 
 ```bash
-python pan_tools/visualize.py
-# Output: pan_tools/frontend/map.html
+python pan_tools/visualize.py               # HTML + Shapefile
+python pan_tools/visualize.py --html         # HTML only
+python pan_tools/visualize.py --shp          # Shapefile only
 ```
 
-The tool generates a single self-contained HTML file (~36 MB) with coordinate data embedded inline (base64). Uses Leaflet + canvas rendering with pixel-level deduplication. Switches between LandsD / OSM / CartoDB basemaps.
+HTML: Leaflet + canvas overlay with pixel deduplication, street/satellite basemap switch, auto-starts local HTTP server.
+
+Shapefile: ESRI Point shapefile (WGS84) with `id`, `lng`, `lat`, `elev_m` attributes.

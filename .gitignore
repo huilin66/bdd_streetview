@@ -7,6 +7,12 @@ pycache/
 *.pyc
 *.jpg
 *.bin
+*.shp
+*.dbf
+*.prj
+*.shx
+
+
 
 .env
 
