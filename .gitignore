@@ -6,5 +6,9 @@ pycache/
 
 *.pyc
 *.jpg
+*.bin
 
 .env
+
+# 可视化生成文件
+pan_tools/frontend/map.html

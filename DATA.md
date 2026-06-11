@@ -111,3 +111,14 @@ The Tile format panoName encodes the capture date as `YYYYMMDD` (e.g., `20220225
 ```
 
 For GTPanos format, `panoDetail` contains the full raw metadata extracted from the MMS SDK's internal `_panoObj` object.
+
+## Visualization Tool
+
+A map visualization of all 3.37M coordinate points is available:
+
+```bash
+python pan_tools/visualize.py
+# Output: pan_tools/frontend/map.html
+```
+
+The tool generates a single self-contained HTML file (~36 MB) with coordinate data embedded inline (base64). Uses Leaflet + canvas rendering with pixel-level deduplication. Switches between LandsD / OSM / CartoDB basemaps.

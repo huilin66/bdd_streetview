@@ -111,3 +111,14 @@ Tile 格式的 panoName 以 `YYYYMMDD` 编码采集日期（如 `20220225` = 202
 ```
 
 GTPanos 格式的 `panoDetail` 包含 MMS SDK 内部 `_panoObj` 对象的完整原始元数据。
+
+## 可视化工具
+
+可生成全部 337 万坐标点的地图可视化：
+
+```bash
+python pan_tools/visualize.py
+# 输出: pan_tools/frontend/map.html
+```
+
+工具生成单个自包含 HTML 文件 (~36 MB)，坐标数据以 base64 内嵌。使用 Leaflet + Canvas 渲染，带像素级去重。底图可在 LandsD / OSM / CartoDB 之间切换。
