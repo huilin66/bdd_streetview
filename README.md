@@ -87,6 +87,10 @@ pan_download/
 
 Each tile JPEG has embedded EXIF GPS coordinates and panorama name.
 
+## Data
+
+See [DATA.md](./DATA.md) ([中文](./DATA_zh.md)) for dataset details, GeoJSON schema, panorama formats, and output structure.
+
 ## Technical Notes
 
 - **Two formats**: Auto-detected — URL ending with `.gtpanos` or numeric panoName → GTPanos format; otherwise → Tile format

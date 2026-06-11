@@ -87,6 +87,10 @@ pan_download/
 
 每张 tile JPEG 内嵌 EXIF GPS 坐标及全景名称。
 
+## 数据
+
+详见 [DATA.md](./DATA.md) ([中文](./DATA_zh.md)) — 数据集说明、GeoJSON 结构、全景格式对比、输出目录说明。
+
 ## 技术说明
 
 - **两种格式**：代码自动检测 — URL 以 `.gtpanos` 结尾或 panoName 为纯数字 → GTPanos 格式，否则 → Tile 格式
