@@ -1,5 +1,5 @@
 """
-点位可视化工具 —— 读取 GeoJSON 所有点坐标，生成 HTML 地图 / 导出 Shapefile
+点位可视化工具 —— 读取 GeoJSON 所有点坐标，生成 HTML 地图 / 导出 Shapefile (geopandas)
 
 用法:
     python pan_tools/visualize.py              # 默认: 生成 HTML + SHP
@@ -207,54 +207,30 @@ load();
 </html>"""
 
 
-WGS84_PRJ = (
-    'GEOGCS["WGS 84",'
-    'DATUM["WGS_1984",'
-    'SPHEROID["WGS 84",6378137,298.257223563,'
-    'AUTHORITY["EPSG","7030"]],'
-    'AUTHORITY["EPSG","6326"]],'
-    'PRIMEM["Greenwich",0,AUTHORITY["EPSG","8901"]],'
-    'UNIT["degree",0.0174532925199433,AUTHORITY["EPSG","9122"]],'
-    'AUTHORITY["EPSG","4326"]]'
-)
-
-
 def geojson_to_shp(geojson_path, output_dir):
-    """将 GeoJSON 点要素转换为 ESRI Shapefile"""
-    import shapefile
+    """将 GeoJSON 点要素转换为 ESRI Shapefile (geopandas)"""
+    import geopandas as gpd
 
-    print(f"读取 GeoJSON: {geojson_path}")
-    with open(geojson_path, "r", encoding="utf-8") as f:
-        data = json.load(f)
+    print(f"读取 GeoJSON → GeoDataFrame: {geojson_path}")
+    gdf = gpd.read_file(geojson_path)
+    gdf = gdf.set_crs("EPSG:4326")
 
-    features = data["features"]
-    count = len(features)
-    print(f"  共 {count:,} 个点")
+    print(f"  共 {len(gdf):,} 个点")
+    gdf["id"] = range(1, len(gdf) + 1)
+    gdf["lng"] = gdf.geometry.x
+    gdf["lat"] = gdf.geometry.y
+    gdf["elev_m"] = gdf.geometry.apply(lambda p: p.z if p.has_z else 0.0)
 
-    shp_path = str(output_dir / "streetscape_points")
-    w = shapefile.Writer(shp_path, shapeType=shapefile.POINT)
-    w.field("id", "N")
-    w.field("lng", "F", decimal=8)
-    w.field("lat", "F", decimal=8)
-    w.field("elev_m", "F", decimal=3)
+    shp_path = output_dir / "streetscape_points.shp"
+    print(f"写入 Shapefile: {shp_path}")
+    gdf[["id", "lng", "lat", "elev_m", "geometry"]].to_file(str(shp_path), driver="ESRI Shapefile")
 
-    print(f"写入 Shapefile: {shp_path}.shp")
-    for i, feat in enumerate(features):
-        c = feat["geometry"]["coordinates"]
-        lng, lat = c[0], c[1]
-        z = c[2] if len(c) > 2 else 0.0
-        w.point(lng, lat)
-        w.record(i + 1, lng, lat, z)
-        if (i + 1) % 1_000_000 == 0:
-            print(f"  {i + 1:,}/{count:,}")
-
-    w.close()
-
-    # 写入投影文件
-    prj_path = output_dir / "streetscape_points.prj"
-    prj_path.write_text(WGS84_PRJ)
-    print(f"  生成: {shp_path}.shp, .shx, .dbf, .prj")
-    print(f"  共 {count:,} 个点")
+    size = sum(
+        (output_dir / f"streetscape_points.{ext}").stat().st_size
+        for ext in ("shp", "shx", "dbf", "prj")
+    )
+    print(f"  生成: {shp_path.stem}.shp/.shx/.dbf/.prj  ({size / 1024 / 1024:.1f} MB)")
+    print(f"  共 {len(gdf):,} 个点")
 
 
 def main():
