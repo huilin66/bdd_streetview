@@ -2,3 +2,7 @@ requests>=2.28
 piexif>=1.1
 tqdm>=4.64
 geopandas>=0.14
+numpy>=1.24
+scipy>=1.10
+pyproj>=3.5
+pyshp>=2.3
