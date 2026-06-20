@@ -14,15 +14,27 @@ from tqdm import tqdm
 
 
 def _count_files(district_dir: Path) -> int:
-    """预扫描文件总数（用于进度条）"""
-    return sum(1 for f in district_dir.rglob("*") if f.is_file())
+    """预扫描文件总数，实时显示已扫描数"""
+    count = 0
+    pbar = tqdm(
+        unit="f",
+        unit_scale=True,
+        desc="  扫描文件",
+        bar_format="{desc}: {n_fmt} 个 [{elapsed}]",
+    )
+    for f in district_dir.rglob("*"):
+        if f.is_file():
+            count += 1
+            if count % 200 == 0:
+                pbar.update(200)
+    pbar.update(count - pbar.n)  # 补足余数
+    pbar.close()
+    return count
 
 
 def compress_district(district_dir: Path, zip_path: Path) -> tuple[int, int]:
     """用 Python zipfile 流式压缩，返回 (file_count, size_bytes)"""
-    print("  正在扫描文件总数...", end="", flush=True)
     total_files = _count_files(district_dir)
-    print(f" {total_files:,} 个文件")
 
     count = 0
     total_size = 0
