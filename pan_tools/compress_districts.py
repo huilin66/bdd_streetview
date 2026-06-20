@@ -6,16 +6,29 @@
     python pan_tools/compress_districts.py //158.132.186.40/isds/huilin/bdd/collected_data/HKStreetScape360
 """
 import argparse
-import subprocess
 import sys
 import zipfile
 from pathlib import Path
+
+from tqdm import tqdm
+
+
+def _count_files(district_dir: Path) -> int:
+    """预扫描文件总数（用于进度条）"""
+    return sum(1 for f in district_dir.rglob("*") if f.is_file())
 
 
 def compress_district(district_dir: Path, zip_path: Path) -> tuple[int, int]:
     """用 Python zipfile 流式压缩，返回 (file_count, size_bytes)"""
     count = 0
     total_size = 0
+    pbar = tqdm(
+        total=_count_files(district_dir),
+        unit="f",
+        unit_scale=True,
+        desc="  压缩进度",
+        bar_format="{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]",
+    )
     with zipfile.ZipFile(str(zip_path), "w", zipfile.ZIP_STORED) as zf:
         for f in district_dir.rglob("*"):
             if not f.is_file():
@@ -25,10 +38,10 @@ def compress_district(district_dir: Path, zip_path: Path) -> tuple[int, int]:
                 zf.write(str(f), arcname)
                 count += 1
                 total_size += f.stat().st_size
-                if count % 50000 == 0:
-                    print(f"  {count:,} files...")
+                pbar.update(1)
             except OSError as e:
-                print(f"  [skip] {f}: {e}")
+                tqdm.write(f"  [skip] {f}: {e}")
+    pbar.close()
     return count, total_size
 
 
