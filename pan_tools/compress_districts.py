@@ -20,10 +20,14 @@ def _count_files(district_dir: Path) -> int:
 
 def compress_district(district_dir: Path, zip_path: Path) -> tuple[int, int]:
     """用 Python zipfile 流式压缩，返回 (file_count, size_bytes)"""
+    print("  正在扫描文件总数...", end="", flush=True)
+    total_files = _count_files(district_dir)
+    print(f" {total_files:,} 个文件")
+
     count = 0
     total_size = 0
     pbar = tqdm(
-        total=_count_files(district_dir),
+        total=total_files,
         unit="f",
         unit_scale=True,
         desc="  压缩进度",
