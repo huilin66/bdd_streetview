@@ -274,11 +274,7 @@ class GtpanosDownloader:
         return "failed", None
 
 
-def extract_gtpanos(panos, output_dir, extractor_script):
-    output_dir = Path(output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    # Resume: skip panos already extracted
+def _scan_existing(output_dir):
     existing = set()
     for f in output_dir.glob("*.json"):
         try:
@@ -287,14 +283,24 @@ def extract_gtpanos(panos, output_dir, extractor_script):
             existing.add(pn)
         except (json.JSONDecodeError, KeyError):
             pass
+    return existing
 
+
+def extract_gtpanos(panos, output_dir, extractor_script):
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    existing = _scan_existing(output_dir)
     todo = [p for p in panos if p["panoName"] not in existing]
     print(f"[extract_gtpanos] {len(existing)} already extracted, {len(todo)} remaining")
 
-    if todo:
+    BATCH_SIZE = 500
+    while todo:
+        batch = todo[:BATCH_SIZE]
         pending_path = output_dir.parent / "gtpanos_pending.json"
-        pending_path.write_text(json.dumps(todo, ensure_ascii=False, indent=2), encoding="utf-8")
+        pending_path.write_text(json.dumps(batch, ensure_ascii=False, indent=2), encoding="utf-8")
 
+        print(f"  batch {len(batch)} panos ({len(todo)} remaining)...")
         result = subprocess.run(
             ["node", str(extractor_script), "--input", str(pending_path),
              "--output-dir", str(output_dir)],
@@ -302,8 +308,11 @@ def extract_gtpanos(panos, output_dir, extractor_script):
             cwd=str(Path(extractor_script).parent),
         )
         if result.returncode != 0:
-            print(f"[extract_gtpanos] 失败: {result.stderr}")
-            # Don't return empty — load what we have so far
+            print(f"[extract_gtpanos] batch failed: {result.stderr[-200:]}")
+            # Keep going — load whatever we got
+
+        existing = _scan_existing(output_dir)
+        todo = [p for p in panos if p["panoName"] not in existing]
 
     loaded = {}
     for f in output_dir.glob("*.json"):
