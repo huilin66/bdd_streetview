@@ -395,7 +395,7 @@ data/building_pano/
 ### 8.4 存储路径
 
 ```
-\\158.132.186.40\isds\huilin\bdd\collected_data\HKStreetScape360\
+...\HKStreetScape360\
   KLC/ KT/ SSP/ WTS/ YTM/   ← 九龙 (已完成)
   CW/ EST/ STH/ WC/          ← 港岛
 ```
