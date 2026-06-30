@@ -87,6 +87,20 @@ pan_download/
 
 每张 tile JPEG 内嵌 EXIF GPS 坐标及全景名称。
 
+## 从已下载图像提取建筑立面
+
+如果已经用 `demo/shp2pan.py --download` 生成了 `facade_pano_candidates.csv` 和 `pan_download/`，可直接从本地 cube tiles 裁剪每个建筑面的视角图：
+
+```bash
+python pan_tools/facade_cropper.py \
+  --candidates data/building_pano_random5_download/facade_pano_candidates.csv \
+  --pano-dir data/building_pano_random5_download/pan_download \
+  --output data/building_pano_random5_download/facade_crops \
+  --overwrite
+```
+
+输出目录会按 `building_id/` 保存 crop，并生成 `manifest.csv` 记录 `building_id`、`facade_id`、`panoName`、`view_azimuth`、`hfov` 等追溯字段。若 GTPanos 图像方向需要校准，可调 `--yaw-offset`；若希望按立面长度和街景距离自动缩放视场角，可加 `--auto-hfov`。
+
 ## 数据
 
 详见 [DATA.md](./DATA.md) ([中文](./DATA_zh.md)) — 数据集说明、GeoJSON 结构、全景格式对比、输出目录说明。

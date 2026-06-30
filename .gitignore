@@ -4,9 +4,12 @@ data/
 tiles/
 pycache/
 demo/
+.pytest_cache/
 
 *.pyc
 *.jpg
+*.png
+*.tif
 *.bin
 *.shp
 *.dbf
